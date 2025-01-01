@@ -6,13 +6,17 @@ from django.utils.safestring import mark_safe
 
 from .models import Address
 
-USE_DJANGO_JQUERY = getattr(settings, "USE_DJANGO_JQUERY", False)
-JQUERY_URL = getattr(
-    settings,
-    "JQUERY_URL",
-    "https://ajax.googleapis.com/ajax/libs/jquery/2.2.0/jquery.min.js",
-)
 
+class AsyncMedia(Media):
+    """
+    Returns all JavaScript resources as a list of <script> HTML tags,
+    including the 'async' attribute.
+    """
+    def as_javascript(self):
+        paths = []
+        for path in self._js:
+            if path.contains("://"):
+                paths.append(f'<script async src="{path}"></script>')
 
 class AddressWidget(forms.TextInput):
     components = [
@@ -31,30 +35,13 @@ class AddressWidget(forms.TextInput):
         ("longitude", "lng"),
     ]
 
-    class Media:
-        """Media defined as a dynamic property instead of an inner class."""
 
+    class AsyncMedia:
         js = [
             "https://maps.googleapis.com/maps/api/js?libraries=places&loading=async&callback=initMap&key=%s" % settings.GOOGLE_API_KEY,
-            "js/jquery.geocomplete.min.js",
             "address/js/address.js",
         ]
 
-        if JQUERY_URL:
-            js.insert(0, JQUERY_URL)
-        elif JQUERY_URL is not False:
-            vendor = "" if django.VERSION < (1, 9, 0) else "vendor/jquery/"
-            extra = "" if settings.DEBUG else ".min"
-
-            jquery_paths = [
-                "{}jquery{}.js".format(vendor, extra),
-                "jquery.init.js",
-            ]
-
-            if USE_DJANGO_JQUERY:
-                jquery_paths = ["admin/js/{}".format(path) for path in jquery_paths]
-
-            js.extend(jquery_paths)
 
     def __init__(self, *args, **kwargs):
         attrs = kwargs.get("attrs", {})
@@ -62,12 +49,10 @@ class AddressWidget(forms.TextInput):
         classes += (" " if classes else "") + "address"
         attrs["class"] = classes
         kwargs["attrs"] = attrs
-        super(AddressWidget, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
 
     def render(self, name, value, attrs=None, **kwargs):
-
-        # Can accept None, a dictionary of values or an Address object.
-        if value in (None, ""):
+        if not value:
             ad = {}
         elif isinstance(value, dict):
             ad = value
@@ -80,7 +65,16 @@ class AddressWidget(forms.TextInput):
         # Generate the elements. We should create a suite of hidden fields
         # For each individual component, and a visible field for the raw
         # input. Begin by generating the raw input.
-        elems = [super(AddressWidget, self).render(name, escape(ad.get("formatted", "")), attrs, **kwargs)]
+        elems = [
+            super().render(
+                name,
+                escape(
+                    ad.get("formatted", "")
+                ),
+                attrs,
+                **kwargs
+            )
+        ]
 
         # Now add the hidden fields.
         elems.append('<div id="%s_components" style="display: none;">' % name)
