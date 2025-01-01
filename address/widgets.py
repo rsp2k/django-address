@@ -3,7 +3,6 @@ from django import forms
 from django.conf import settings
 from django.utils.html import escape
 from django.utils.safestring import mark_safe
-from example_site.settings import GOOGLE_API_KEY
 
 from .models import Address
 
