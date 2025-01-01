@@ -43,7 +43,7 @@ class AddressWidget(forms.TextInput):
         ("longitude", "lng"),
     ]
 
-    class Media:
+    class Media(GoogleMapsMedia):
         js = [
             "address/js/address.js",
         ]
@@ -55,7 +55,6 @@ class AddressWidget(forms.TextInput):
         attrs["class"] = classes
         kwargs["attrs"] = attrs
         super().__init__(*args, **kwargs)
-        self.media = GoogleMapsMedia(js=self.Media.js)
 
     def render(self, name, value, attrs=None, **kwargs):
         if not value:
