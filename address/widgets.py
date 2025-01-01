@@ -35,7 +35,7 @@ class AddressWidget(forms.TextInput):
         """Media defined as a dynamic property instead of an inner class."""
 
         js = [
-            "https://maps.googleapis.com/maps/api/js?libraries=places&key=%s" % settings.GOOGLE_API_KEY,
+            "https://maps.googleapis.com/maps/api/js?libraries=places&loading=async&callback=initMap&key=%s" % settings.GOOGLE_API_KEY,
             "js/jquery.geocomplete.min.js",
             "address/js/address.js",
         ]
