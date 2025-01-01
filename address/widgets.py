@@ -3,20 +3,29 @@ from django import forms
 from django.conf import settings
 from django.utils.html import escape
 from django.utils.safestring import mark_safe
+from example_site.settings import GOOGLE_API_KEY
 
 from .models import Address
 
 
-class AsyncMedia(Media):
+class GoogleMapsMedia(forms.widgets.Media):
     """
-    Returns all JavaScript resources as a list of <script> HTML tags,
-    including the 'async' attribute.
+    Loads GoogleMaps including the 'async' attribute.
     """
+
     def as_javascript(self):
         paths = []
+        if settings.GOOGLE_API_KEY:
+            paths = [
+                f'<script async src="https://maps.googleapis.com/maps/api/js?libraries=places&loading=async&callback=initMap&key={settings.GOOGLE_API_KEY}"></script>'
+            ]
+        else:
+            paths.append('<script>console.warn("settings.GOOGLE_API_KEY not set!")')
+
         for path in self._js:
-            if path.contains("://"):
-                paths.append(f'<script async src="{path}"></script>')
+            paths.append(f'<script src="{path}"></script>')
+
+        return paths
 
 class AddressWidget(forms.TextInput):
     components = [
@@ -35,13 +44,10 @@ class AddressWidget(forms.TextInput):
         ("longitude", "lng"),
     ]
 
-
-    class AsyncMedia:
+    class Media:
         js = [
-            "https://maps.googleapis.com/maps/api/js?libraries=places&loading=async&callback=initMap&key=%s" % settings.GOOGLE_API_KEY,
             "address/js/address.js",
         ]
-
 
     def __init__(self, *args, **kwargs):
         attrs = kwargs.get("attrs", {})
@@ -50,6 +56,7 @@ class AddressWidget(forms.TextInput):
         attrs["class"] = classes
         kwargs["attrs"] = attrs
         super().__init__(*args, **kwargs)
+        self.media = GoogleMapsMedia(js=self.Media.js)
 
     def render(self, name, value, attrs=None, **kwargs):
         if not value:
