@@ -30,7 +30,7 @@ class AddressWidget(forms.TextInput):
         if settings.GOOGLE_API_KEY:
             media_list.append("address/js/address.js")
             media_list = [
-                f'<script async src="https://maps.googleapis.com/maps/api/js?libraries=places&loading=async&callback=initMap&key={settings.GOOGLE_API_KEY}"></script>'
+                f'https://maps.googleapis.com/maps/api/js?libraries=places&loading=async&callback=initMap&key={settings.GOOGLE_API_KEY}'
             ] + media_list
         else:
             media_list.append('<script>console.warn("settings.GOOGLE_API_KEY not set!")')
