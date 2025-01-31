@@ -26,13 +26,12 @@ class AddressWidget(forms.TextInput):
     @property
     def media(self):
         media_list = super().media
-        async_media_list = []
 
         if settings.GOOGLE_API_KEY:
             media_list.append("address/js/address.js")
-            async_media_list = [
+            media_list.append(
                 f'https://maps.googleapis.com/maps/api/js?libraries=places&loading=async&callback=initMap&key={settings.GOOGLE_API_KEY}'
-            ]
+            )
         else:
             warnings.warn('settings.GOOGLE_API_KEY not set!')
 
