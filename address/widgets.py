@@ -26,16 +26,36 @@ class AddressWidget(forms.TextInput):
     @property
     def media(self):
         media_list = super().media
+        async_media_list = []
 
         if settings.GOOGLE_API_KEY:
             media_list.append("address/js/address.js")
-            media_list = [
+            async_media_list = [
                 f'https://maps.googleapis.com/maps/api/js?libraries=places&loading=async&callback=initMap&key={settings.GOOGLE_API_KEY}'
-            ] + media_list
+            ]
         else:
-            media_list.append('<script>console.warn("settings.GOOGLE_API_KEY not set!")')
+            warnings.warn('settings.GOOGLE_API_KEY not set!')
 
-        return forms.Media(media_list)
+        form_media = forms.Media(media_list)
+
+        # def patched_media_html():
+        #     scripts = []
+        #     if 'js' in media_list._js:
+        #         for js_path in self._js['js']:
+        #             if 'async' in self._js:
+        #                 scripts.append(format_html('<script type="text/javascript" src="{}" async></script>', js_path))
+        #             else:
+        #                 scripts.append(format_html('<script type="text/javascript" src="{}"></script>', js_path))
+        #     if 'css' in self._css:
+        #         for css_path in self._css['all']:
+        #             scripts.append(format_html('<link rel="stylesheet" href="{}" />', css_path))
+        #     return '\n'.join(scripts)
+        #
+        # form_media.__html__ = patched_media_html()
+
+        return form_media
+
+
 
     def __init__(self, *args, **kwargs):
         attrs = kwargs.get("attrs", {})
