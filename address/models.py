@@ -1,9 +1,14 @@
 import logging
+import warnings
+from datetime import timedelta
 
 from django.conf import settings
 
 from django.core.exceptions import ValidationError
 from django.db import models
+
+import requests
+from django.utils import timezone
 
 try:
     from django.db.models.fields.related_descriptors import ForwardManyToOneDescriptor
@@ -238,7 +243,6 @@ class Locality(models.Model):
         return txt
 
 
-
 class UsCensusBureauAddressManagerGeoCoderMixin(models.Manager):
     def geocode(self, address_string):
         """
@@ -255,7 +259,7 @@ class UsCensusBureauAddressManagerGeoCoderMixin(models.Manager):
         )
         if cached_reply:
             return cached_reply
-
+        
         url = "https://geocoding.geo.census.gov/geocoder/locations/onelineaddress"
         params = {
             "address": address_string,
@@ -329,21 +333,13 @@ class UsCensusBureauAddressManagerGeoCoderMixin(models.Manager):
             latitude = result["coordinates"]["y"]
             longitude = result["coordinates"]["x"]
             matched_address = result["matchedAddress"]
-    #        tiger_line = result["tigerLine"]
 
             zip_code = result["addressComponents"]["zip"]
             city = result["addressComponents"]["city"]
             state = result["addressComponents"]["state"]
+            # tiger_line = result["tigerLine"]
             # score = result["score"]
             # match_type = result["matchType"]
-            # result["addressComponents"]["preType"]
-            # result["addressComponents"]["preDirection"]
-            # result["addressComponents"]["suffixDirection"]
-            # result["addressComponents"]["fromAddress"]
-            # result["addressComponents"]["suffixType"]
-            # result["addressComponents"]["toAddress"]
-            # result["addressComponents"]["suffixQualifier"]
-            # result["addressComponents"]["preQualifier"]
             # result["addressComponents"] = {
             #     "zip":"83704",
             #     "streetName":"MARCLIFFE",
@@ -359,25 +355,6 @@ class UsCensusBureauAddressManagerGeoCoderMixin(models.Manager):
             #     "preQualifier":""
             # },
 
-            geographies = result["geographies"]
-            country_name = None
-            if "County" in geographies:
-                county_data = geographies["County"][0]  # Access the first county
-                county_geoid = county_data["GEOID"]
-                county_name = county_data["NAME"]
-    #            print(f"County GEOID: {county_geoid}, County Name: {county_name}")
-    #        else:
-    #            print("County information not available.")
-            # Print census tract information (if available)
-            tract_geoid = None
-            if "Tract" in geographies:  # Use 'Tract' instead of 'Census Tract'
-                tract_data = geographies["Tract"][0]
-                tract_geoid = tract_data["GEOID"]
-                tract_name = tract_data["NAME"]
-    #            print(f"Tract GEOID: {tract_geoid}, Tract Name: {tract_name}")
-    #        else:
-    #            print("Census Tract information not available.")
-
             address_obj, created = Address.objects.get_or_create(
                 formatted=matched_address,
                 latitude=latitude,
@@ -386,9 +363,7 @@ class UsCensusBureauAddressManagerGeoCoderMixin(models.Manager):
                 state=state,
                 postal_code=zip_code,
                 defaults={
-                    'raw' :address_string,
-                    'country': country_name,
-                    'census_data': result,
+                    'raw': address_string,
                 }
             )
 
@@ -404,17 +379,19 @@ class UsCensusBureauAddressManagerGeoCoderMixin(models.Manager):
             return None
 
 
-class AddressManager(UsCensusBureauAddressGeoCoderManagerMixin):
+class AddressManager(UsCensusBureauAddressManagerGeoCoderMixin):
     # Add the UsCensusBureau GeoCoder
     pass
 
 
 class UsCensusBureauCacheQuerySet(models.QuerySet):
     MAX_AGE_DAYS = 100
+
     def valid(self):
         return self.filter(
             created_at__gte=timezone.now() - timedelta(days=self.MAX_AGE_DAYS),
         )
+
     def check_cache(self, address_string):
         try:
             return self.valid().get(
@@ -424,7 +401,7 @@ class UsCensusBureauCacheQuerySet(models.QuerySet):
         except self.model.DoesNotExist:
             return self.model.objects.none()
 
-    def clear_cache(self, max_days_old=self.MAX_AGE_DAYS):
+    def clear_cache(self, max_days_old=MAX_AGE_DAYS):
         return self.filter(
             created_at__lte=timezone.now() - timedelta(days=max_days_old)
         ).delete()
@@ -448,10 +425,12 @@ class UsCensusBureauCache(models.Model):
     def address_components(self):
         return self.data.get('addressComponents', None)
 
+
 ##
 # An address. If for any reason we are unable to find a matching
 # decomposed address we will store the raw address string in `raw`.
 ##
+
 
 class Address(models.Model):
     objects = AddressManager()
@@ -476,7 +455,7 @@ class Address(models.Model):
     @property
     def timezone(self):
         """
-        Support lat/lon based Timezone Lookup if timezonefinder is installed
+        Support lat/lon based Timezone Lookup if timezonefinder
         """
         if not timezone_finder:
             warnings.warn(f"django-address: tried to call Address.timezone, but timezonefinder isn't available! `pip install timezonefinder`")
@@ -492,7 +471,7 @@ class Address(models.Model):
             #     raise ValueError("Can't get timezone for {self} when no lat/lon/formatted/raw is set!")
 
             # Geocode address to lat/log
-            #lat, long = geocode(address)
+            # lat, long = geocode(address)
             raise ValueError("Can't get timezone for {self} when no lat/lon/formatted/raw is set!")
 
         return timezone_finder.timezone_at(
