@@ -231,7 +231,85 @@ class Locality(models.Model):
 ##
 
 
+class GoogleMapsManagerAddressManagerMixin(models.Manager):
+    """
+    Gets/Creates Address object using raw input and google maps
+    """
+
+    def geo_code_address(self, address_string, **extra_fields):
+        """
+        Geocodes an address using the Google Maps Geocoding API and creates or updates
+        an Address object in django-address.
+
+        Args:
+            address_string (str): The address to geocode.
+
+        Returns:
+            Address or None: The created/updated Address object or None if an error occurs.
+        """
+
+        if not hasattr(settings, "GOOGLE_MAPS_API_KEY"):
+            warnings.warn("django-address: settings.GOOGLE_MAPS_API_KEY not set!")
+            return None
+
+        try:
+            import googlemaps
+        except ImportError:
+            warnings.warn("django-address: pip install googlemaps!")
+            return None
+
+
+        gmaps = googlemaps.Client(
+            key=settings.GOOGLE_MAPS_KEY
+        )
+
+        try:
+            geocode_result = gmaps.geocode(
+                address_string,
+                **extra_fields
+            )
+            if geocode_result:
+                result = geocode_result[0]  # Take the first result
+                formatted_address = result.get('formatted_address')
+                location = result.get('geometry', {}).get('location')
+                latitude = location.get('lat') if location else None
+                longitude = location.get('lng') if location else None
+                place_id = result.get('place_id')
+
+                components = result.get('address_components')
+
+                city = next((comp['long_name'] for comp in components if 'locality' in comp['types']), None)
+                state = next((comp['short_name'] for comp in components if 'administrative_area_level_1' in comp['types']), None)
+                zip_code = next((comp['long_name'] for comp in components if 'postal_code' in comp['types']), None)
+                country = next((comp['short_name'] for comp in components if 'country' in comp['types']), None)
+
+                address_obj, created = Address.objects.get_or_create(
+                    formatted=formatted_address,
+                    city=city,
+                    state=state,
+                    postal_code=zip_code,
+                    country=country,
+                    defaults={
+                        'latitude': latitude,
+                        'longitude': longitude,
+                        'place_id': place_id
+                    }
+                )
+
+                return address_obj
+            else:
+                print(f"No results found for address: {address_string}")
+                return None
+        except Exception as e:
+            print(f"Error during geocoding: {e}")
+            return None
+
+
+class AddressManager(GoogleMapsManagerAddressManagerMixin):
+    pass
+
 class Address(models.Model):
+    objects = AddressManager()
     street_number = models.CharField(max_length=20, blank=True)
     route = models.CharField(max_length=100, blank=True)
     locality = models.ForeignKey(
