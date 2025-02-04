@@ -1,5 +1,7 @@
 import logging
 
+from django.conf import settings
+
 from django.core.exceptions import ValidationError
 from django.db import models
 
@@ -13,6 +15,17 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 __all__ = ["Country", "State", "Locality", "Address", "AddressField"]
+
+
+try:
+    from timezonefinder import TimezoneFinder
+    timezone_finder = TimezoneFinder()  # reuse
+
+except ImportError:
+    if settings.DEBUG:
+        warnings.warn(f"django-address: pip install timezonefinder for Timezone Lookup Support")
+    timezone_finder = None
+    pass
 
 
 class InconsistentDictError(Exception):
@@ -225,88 +238,220 @@ class Locality(models.Model):
         return txt
 
 
+
+class UsCensusBureauAddressManagerGeoCoderMixin(models.Manager):
+    def geocode(self, address_string):
+        """
+        Geocodes/Creates a US address using the US Census Bureau's API.
+        Args:
+            address_string (str): The address to geocode.
+        Returns:
+            tuple: A tuple containing (latitude, longitude) if successful,
+                   otherwise None.
+        """
+
+        cached_reply = UsCensusBureauCache.objects.check_cache(
+            address_string=address_string,
+        )
+        if cached_reply:
+            return cached_reply
+
+        url = "https://geocoding.geo.census.gov/geocoder/locations/onelineaddress"
+        params = {
+            "address": address_string,
+            "benchmark": "Public_AR_Current", # Use current benchmark
+            "format": "json"
+        }
+        try:
+            response = requests.get(url, params=params)
+            response.raise_for_status()  # Raise HTTPError for bad responses (4xx or 5xx)
+            json_response = response.json()
+
+
+            """        
+            print(response.text)
+
+            result = {
+                "input": {
+                    "address": {
+                        "address":"4179 N. Marcliffe Ave, Boise, ID"
+                    },
+                    "benchmark": {
+                        "isDefault":true,
+                        "benchmarkDescription":"Public Address Ranges - Current Benchmark",
+                        "id":"4",
+                        "benchmarkName":"Public_AR_Current"}
+                },
+                "addressMatches":[
+                    { 
+                        "tigerLine": {
+                            "side":"R",
+                            "tigerLineId":"117869523"
+                        },
+                        "coordinates": {
+                            "x":-116.308812139437,
+                            "y":43.643163617594
+                        },
+                        "addressComponents": {
+                            "zip":"83704",
+                            "streetName":"MARCLIFFE",
+                            "preType":"",
+                            "city":"BOISE",
+                            "preDirection":"N",
+                            "suffixDirection":"",
+                            "fromAddress":"4299",
+                            "state":"ID",
+                            "suffixType":"AVE",
+                            "toAddress":"4101",
+                            "suffixQualifier":"",
+                            "preQualifier":""
+                        },
+                        "matchedAddress":" 4179 N MARCLIFFE AVE, BOISE, ID, 83704"
+                    }
+                ]
+            }
+            """
+
+        except requests.exceptions.RequestException as e:
+            print(f"Error connecting to the Census Bureau API: {e}")
+            return None
+
+        try:
+            if 'addressMatches' not in json_response:
+                return None
+
+            elif len(json_response['address_matches']) > 1:
+                return json_response['address_matches']
+
+            else:
+                result = json_response['address_matches'][0]
+
+            latitude = result["coordinates"]["y"]
+            longitude = result["coordinates"]["x"]
+            matched_address = result["matchedAddress"]
+    #        tiger_line = result["tigerLine"]
+
+            zip_code = result["addressComponents"]["zip"]
+            city = result["addressComponents"]["city"]
+            state = result["addressComponents"]["state"]
+            # score = result["score"]
+            # match_type = result["matchType"]
+            # result["addressComponents"]["preType"]
+            # result["addressComponents"]["preDirection"]
+            # result["addressComponents"]["suffixDirection"]
+            # result["addressComponents"]["fromAddress"]
+            # result["addressComponents"]["suffixType"]
+            # result["addressComponents"]["toAddress"]
+            # result["addressComponents"]["suffixQualifier"]
+            # result["addressComponents"]["preQualifier"]
+            # result["addressComponents"] = {
+            #     "zip":"83704",
+            #     "streetName":"MARCLIFFE",
+            #     "preType":"",
+            #     "city":"BOISE",
+            #     "preDirection":"N",
+            #     "suffixDirection":"",
+            #     "fromAddress":"4299",
+            #     "state":"ID",
+            #     "suffixType":"AVE",
+            #     "toAddress":"4101",
+            #     "suffixQualifier":"",
+            #     "preQualifier":""
+            # },
+
+            geographies = result["geographies"]
+            country_name = None
+            if "County" in geographies:
+                county_data = geographies["County"][0]  # Access the first county
+                county_geoid = county_data["GEOID"]
+                county_name = county_data["NAME"]
+    #            print(f"County GEOID: {county_geoid}, County Name: {county_name}")
+    #        else:
+    #            print("County information not available.")
+            # Print census tract information (if available)
+            tract_geoid = None
+            if "Tract" in geographies:  # Use 'Tract' instead of 'Census Tract'
+                tract_data = geographies["Tract"][0]
+                tract_geoid = tract_data["GEOID"]
+                tract_name = tract_data["NAME"]
+    #            print(f"Tract GEOID: {tract_geoid}, Tract Name: {tract_name}")
+    #        else:
+    #            print("Census Tract information not available.")
+
+            address_obj, created = Address.objects.get_or_create(
+                formatted=matched_address,
+                latitude=latitude,
+                longitude=longitude,
+                city=city,
+                state=state,
+                postal_code=zip_code,
+                defaults={
+                    'raw' :address_string,
+                    'country': country_name,
+                    'census_data': result,
+                }
+            )
+
+            UsCensusBureauCache.objects.create(
+                address_obj=address_obj,
+                address_string=self,
+            )
+
+            return address_obj
+
+        except (KeyError, TypeError) as e:
+            print(f"Error parsing the Census Bureau API response: {e}")
+            return None
+
+
+class AddressManager(UsCensusBureauAddressGeoCoderManagerMixin):
+    # Add the UsCensusBureau GeoCoder
+    pass
+
+
+class UsCensusBureauCacheQuerySet(models.QuerySet):
+    MAX_AGE_DAYS = 100
+    def valid(self):
+        return self.filter(
+            created_at__gte=timezone.now() - timedelta(days=self.MAX_AGE_DAYS),
+        )
+    def check_cache(self, address_string):
+        try:
+            return self.valid().get(
+                address_string=address_string,
+            )
+
+        except self.model.DoesNotExist:
+            return self.model.objects.none()
+
+    def clear_cache(self, max_days_old=self.MAX_AGE_DAYS):
+        return self.filter(
+            created_at__lte=timezone.now() - timedelta(days=max_days_old)
+        ).delete()
+
+
+class UsCensusBureauCache(models.Model):
+    objects = UsCensusBureauCacheQuerySet.as_manager()
+    address_string = models.CharField(max_length=120, db_index=True)
+    matched_address = models.ForeignKey("Address", on_delete=models.CASCADE)
+    created_at = models.DateTimeField(auto_now_add=True)
+    data = models.JSONField(
+        help_text="Data retrieved from US Census API",
+        default=dict(),
+    )
+
+    @property
+    def tiger_line(self):
+        return self.data.get("tigerLine", None)
+
+    @property
+    def address_components(self):
+        return self.data.get('addressComponents', None)
+
 ##
 # An address. If for any reason we are unable to find a matching
 # decomposed address we will store the raw address string in `raw`.
 ##
-
-
-class GoogleMapsManagerAddressManagerMixin(models.Manager):
-    """
-    Gets/Creates Address object using raw input and google maps
-    """
-
-    def geo_code_address(self, address_string, **extra_fields):
-        """
-        Geocodes an address using the Google Maps Geocoding API and creates or updates
-        an Address object in django-address.
-
-        Args:
-            address_string (str): The address to geocode.
-
-        Returns:
-            Address or None: The created/updated Address object or None if an error occurs.
-        """
-
-        if not hasattr(settings, "GOOGLE_MAPS_API_KEY"):
-            warnings.warn("django-address: settings.GOOGLE_MAPS_API_KEY not set!")
-            return None
-
-        try:
-            import googlemaps
-        except ImportError:
-            warnings.warn("django-address: pip install googlemaps!")
-            return None
-
-
-        gmaps = googlemaps.Client(
-            key=settings.GOOGLE_MAPS_KEY
-        )
-
-        try:
-            geocode_result = gmaps.geocode(
-                address_string,
-                **extra_fields
-            )
-            if geocode_result:
-                result = geocode_result[0]  # Take the first result
-                formatted_address = result.get('formatted_address')
-                location = result.get('geometry', {}).get('location')
-                latitude = location.get('lat') if location else None
-                longitude = location.get('lng') if location else None
-                place_id = result.get('place_id')
-
-                components = result.get('address_components')
-
-                city = next((comp['long_name'] for comp in components if 'locality' in comp['types']), None)
-                state = next((comp['short_name'] for comp in components if 'administrative_area_level_1' in comp['types']), None)
-                zip_code = next((comp['long_name'] for comp in components if 'postal_code' in comp['types']), None)
-                country = next((comp['short_name'] for comp in components if 'country' in comp['types']), None)
-
-                address_obj, created = Address.objects.get_or_create(
-                    formatted=formatted_address,
-                    city=city,
-                    state=state,
-                    postal_code=zip_code,
-                    country=country,
-                    defaults={
-                        'latitude': latitude,
-                        'longitude': longitude,
-                        'place_id': place_id
-                    }
-                )
-
-                return address_obj
-            else:
-                print(f"No results found for address: {address_string}")
-                return None
-        except Exception as e:
-            print(f"Error during geocoding: {e}")
-            return None
-
-
-class AddressManager(GoogleMapsManagerAddressManagerMixin):
-    pass
 
 class Address(models.Model):
     objects = AddressManager()
@@ -328,22 +473,48 @@ class Address(models.Model):
         verbose_name_plural = "Addresses"
         ordering = ("locality", "route", "street_number")
 
+    @property
+    def timezone(self):
+        """
+        Support lat/lon based Timezone Lookup if timezonefinder is installed
+        """
+        if not timezone_finder:
+            warnings.warn(f"django-address: tried to call Address.timezone, but timezonefinder isn't available! `pip install timezonefinder`")
+            return None
+
+        if not (self.latitude and self.longitude):
+            # Todo, geocode if necessary, this is edge case
+            # if self.formatted:
+            #     address = self.formatted
+            # elif self.raw:
+            #     address = self.raw
+            # else:
+            #     raise ValueError("Can't get timezone for {self} when no lat/lon/formatted/raw is set!")
+
+            # Geocode address to lat/log
+            #lat, long = geocode(address)
+            raise ValueError("Can't get timezone for {self} when no lat/lon/formatted/raw is set!")
+
+        return timezone_finder.timezone_at(
+            lng=self.longitude, lat=self.latitude
+        )
+
     def __str__(self):
         if self.formatted != "":
-            txt = "%s" % self.formatted
+            txt = str(self.formatted)
         elif self.locality:
             txt = ""
             if self.street_number:
-                txt = "%s" % self.street_number
+                txt = str(self.street_number)
             if self.route:
                 if txt:
-                    txt += " %s" % self.route
-            locality = "%s" % self.locality
+                    txt += str(self.route)
+            locality = str(self.locality)
             if txt and locality:
                 txt += ", "
             txt += locality
         else:
-            txt = "%s" % self.raw
+            txt = str(self.raw)
         return txt
 
     def clean(self):
