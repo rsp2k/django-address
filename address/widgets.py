@@ -78,19 +78,16 @@ class AddressWidget(forms.TextInput):
         # Generate the elements. We should create a suite of hidden fields
         # For each individual component, and a visible field for the raw
         # input. Begin by generating the raw input.
-        elems = [
-            super().render(
-                name,
-                escape(
-                    ad.get("formatted", "")
-                ),
-                attrs,
-                **kwargs
-            )
-        ]
+        elems = [super().render(
+            name,
+            escape(
+                ad.get("formatted", "")
+            ),
+            attrs,
+            **kwargs
+        ), '<div id="%s_components" style="display: none;">' % name]
 
         # Now add the hidden fields.
-        elems.append('<div id="%s_components" style="display: none;">' % name)
         for com in self.components:
             elems.append(
                 '<input type="hidden" name="%s_%s" data-geo="%s" value="%s" />'
