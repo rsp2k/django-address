@@ -1,4 +1,5 @@
 django
 requests
+django-environ
 # optional
 timezonefinder~=6.5.8
