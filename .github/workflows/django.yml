@@ -27,4 +27,4 @@ jobs:
         pip install -r example-project/requirements.txt
     - name: Run Tests
       run: |
-        cd example_project; python manage.py test
+        cd example_site; python manage.py test
