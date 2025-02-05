@@ -223,3 +223,5 @@ continued under the current model architecture on master.
 The project is currently in open development, read more about the project status [in this issue](https://github.com/furious-luke/django-address/issues/98).  
 
 If you have questions, bug reports or suggestions please create a New Issue for the project.
+
+Added django workflow
