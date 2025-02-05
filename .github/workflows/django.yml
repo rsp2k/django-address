@@ -24,7 +24,7 @@ jobs:
     - name: Install Dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install -r example-project/requirements.txt
+        pip install -r example_site/requirements.txt
     - name: Run Tests
       run: |
         cd example_site; python manage.py test
