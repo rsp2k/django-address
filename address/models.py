@@ -414,7 +414,7 @@ class UsCensusBureauCache(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     data = models.JSONField(
         help_text="Data retrieved from US Census API",
-        default=dict(),
+        default=dict,
     )
 
     @property
