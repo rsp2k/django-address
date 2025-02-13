@@ -10,9 +10,5 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AlterField(
-            model_name="state",
-            name="code",
-            field=models.CharField(blank=True, max_length=8),
-        ),
+
     ]
